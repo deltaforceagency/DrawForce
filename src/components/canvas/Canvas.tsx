@@ -27,7 +27,7 @@ export function Canvas({ elements, onElementsChange }: CanvasProps) {
     fillColor: "transparent",
     strokeWidth: 2,
     opacity: 1,
-    roughness: 1,
+    roughness: 1.5,
     zoom: 1,
     panX: 0,
     panY: 0,
@@ -48,7 +48,7 @@ export function Canvas({ elements, onElementsChange }: CanvasProps) {
     screenY: number;
   } | null>(null);
 
-  // Resize canvas
+  // Resize canvas — set physical pixel size, apply DPR scale
   useEffect(() => {
     const container = containerRef.current;
     const canvas = canvasRef.current;

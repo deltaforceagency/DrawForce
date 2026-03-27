@@ -135,7 +135,7 @@ function parsePromptToElements(prompt: string, existingCount: number): DrawEleme
   return elements;
 }
 
-function generateFlowchart(prompt: string, color: string): DrawElement[] {
+function generateFlowchart(prompt: string, _color: string): DrawElement[] {
   const elements: DrawElement[] = [];
 
   // Extract steps from prompt
@@ -150,62 +150,58 @@ function generateFlowchart(prompt: string, color: string): DrawElement[] {
     if (parsed.length >= 2) steps = parsed;
   }
 
-  const boxW = 160;
-  const boxH = 60;
-  const gap = 40;
+  // Excalidraw-style colors for each step
+  const stepColors = ["#4285F4", "#34A853", "#F4B400", "#DB4437", "#9C27B0", "#00BCD4", "#FF9800"];
+
+  const boxW = 200;
+  const boxH = 65;
+  const gap = 50;
   const startX = 200;
   const startY = 80;
 
   steps.forEach((step, i) => {
     const y = startY + i * (boxH + gap);
     const isDecision = step.toLowerCase().includes("decision") || step.includes("?");
-    const isTerminal = i === 0 || i === steps.length - 1;
+    const fillColor = stepColors[i % stepColors.length];
 
-    // Box
+    // Box — solid colored fill with white stroke
     const el = createElement(
       isDecision ? "diamond" : "rectangle",
       startX,
       y,
-      color,
-      isTerminal ? color + "20" : "transparent",
-      2,
+      "#ffffff",
+      fillColor,
+      2.5,
       1,
-      1
+      1.2
     );
     el.width = isDecision ? boxW + 40 : boxW;
     el.height = isDecision ? boxH + 20 : boxH;
     elements.push(el);
 
-    // Label
-    const label = createElement(
-      "text",
-      startX + (isDecision ? 50 : 30),
-      y + (isDecision ? 30 : 20),
-      color,
-      "transparent",
-      1.5,
-      1,
-      0
-    );
+    // White text centered inside box
+    const elW = isDecision ? boxW + 40 : boxW;
+    const elH = isDecision ? boxH + 20 : boxH;
+    const label = createElement("text", startX, y, "#ffffff", "transparent", 2, 1, 0);
     label.text = step;
-    label.width = boxW;
-    label.height = 20;
+    label.width = elW;
+    label.height = elH;
     elements.push(label);
 
-    // Arrow to next
+    // Arrow to next — white, thick
     if (i < steps.length - 1) {
       const arrow = createElement(
         "arrow",
         startX + boxW / 2,
-        y + boxH,
-        color,
+        y + (isDecision ? boxH + 20 : boxH),
+        "#ffffff",
         "transparent",
-        2,
+        2.5,
         1,
-        1
+        1.2
       );
       arrow.width = 0;
-      arrow.height = gap;
+      arrow.height = isDecision ? gap - 20 : gap;
       elements.push(arrow);
     }
   });
@@ -213,35 +209,36 @@ function generateFlowchart(prompt: string, color: string): DrawElement[] {
   return elements;
 }
 
-function generateOrgChart(prompt: string, color: string): DrawElement[] {
+function generateOrgChart(prompt: string, _color: string): DrawElement[] {
   const elements: DrawElement[] = [];
-  const boxW = 140;
-  const boxH = 50;
+  const boxW = 160;
+  const boxH = 55;
 
+  // Excalidraw style — each level gets a different color
   const positions = [
-    { x: 300, y: 60, label: "CEO" },
-    { x: 150, y: 180, label: "CTO" },
-    { x: 450, y: 180, label: "CFO" },
-    { x: 60, y: 300, label: "Dev Lead" },
-    { x: 240, y: 300, label: "Design Lead" },
-    { x: 380, y: 300, label: "Finance" },
-    { x: 520, y: 300, label: "Operations" },
+    { x: 300, y: 50, label: "CEO", fill: "#4285F4" },
+    { x: 130, y: 180, label: "CTO", fill: "#34A853" },
+    { x: 470, y: 180, label: "CFO", fill: "#34A853" },
+    { x: 40, y: 310, label: "Dev Lead", fill: "#F4B400" },
+    { x: 220, y: 310, label: "Design Lead", fill: "#F4B400" },
+    { x: 400, y: 310, label: "Finance", fill: "#F4B400" },
+    { x: 580, y: 310, label: "Operations", fill: "#F4B400" },
   ];
 
   const connections = [
     [0, 1], [0, 2], [1, 3], [1, 4], [2, 5], [2, 6],
   ];
 
-  positions.forEach(({ x, y, label }) => {
-    const el = createElement("rectangle", x, y, color, color + "15", 2, 1, 1);
+  positions.forEach(({ x, y, label, fill }) => {
+    const el = createElement("rectangle", x, y, "#ffffff", fill, 2.5, 1, 1.2);
     el.width = boxW;
     el.height = boxH;
     elements.push(el);
 
-    const text = createElement("text", x + 20, y + 15, color, "transparent", 1.5, 1, 0);
+    const text = createElement("text", x, y, "#ffffff", "transparent", 2, 1, 0);
     text.text = label;
     text.width = boxW;
-    text.height = 20;
+    text.height = boxH;
     elements.push(text);
   });
 
@@ -249,14 +246,14 @@ function generateOrgChart(prompt: string, color: string): DrawElement[] {
     const f = positions[from];
     const t = positions[to];
     const arrow = createElement(
-      "line",
+      "arrow",
       f.x + boxW / 2,
       f.y + boxH,
-      color,
+      "#ffffff",
       "transparent",
       2,
-      0.8,
-      1
+      0.9,
+      1.2
     );
     arrow.width = t.x + boxW / 2 - (f.x + boxW / 2);
     arrow.height = t.y - (f.y + boxH);
@@ -266,73 +263,78 @@ function generateOrgChart(prompt: string, color: string): DrawElement[] {
   return elements;
 }
 
-function generateMindMap(prompt: string, color: string): DrawElement[] {
+function generateMindMap(prompt: string, _color: string): DrawElement[] {
   const elements: DrawElement[] = [];
   const cx = 400;
   const cy = 300;
 
-  // Center node
-  const center = createElement("ellipse", cx - 60, cy - 30, color, color + "20", 2, 1, 1);
-  center.width = 120;
-  center.height = 60;
+  // Excalidraw-style colors for branches
+  const branchColors = ["#DB4437", "#F4B400", "#34A853", "#4285F4", "#9C27B0", "#00BCD4"];
+
+  // Center node — big, prominent
+  const center = createElement("ellipse", cx - 80, cy - 40, "#ffffff", "#4285F4", 2.5, 1, 1.2);
+  center.width = 160;
+  center.height = 80;
   elements.push(center);
 
-  const centerText = createElement("text", cx - 30, cy - 8, color, "transparent", 1.5, 1, 0);
+  const centerText = createElement("text", cx - 80, cy - 40, "#ffffff", "transparent", 2.5, 1, 0);
   centerText.text = "Main Idea";
-  centerText.width = 80;
-  centerText.height = 20;
+  centerText.width = 160;
+  centerText.height = 80;
   elements.push(centerText);
 
   const branches = ["Branch 1", "Branch 2", "Branch 3", "Branch 4", "Branch 5", "Branch 6"];
-  const radius = 200;
+  const radius = 220;
 
   branches.forEach((label, i) => {
     const angle = (i / branches.length) * Math.PI * 2 - Math.PI / 2;
-    const bx = cx + Math.cos(angle) * radius - 50;
-    const by = cy + Math.sin(angle) * radius - 20;
+    const bx = cx + Math.cos(angle) * radius - 60;
+    const by = cy + Math.sin(angle) * radius - 25;
+    const fillColor = branchColors[i % branchColors.length];
 
-    // Line from center
-    const line = createElement("line", cx, cy, color + "80", "transparent", 1.5, 1, 1.5);
-    line.width = bx + 50 - cx;
-    line.height = by + 20 - cy;
-    elements.push(line);
+    // Arrow from center to branch
+    const arrow = createElement("arrow", cx, cy, "#ffffff", "transparent", 2, 0.7, 1.5);
+    arrow.width = bx + 60 - cx;
+    arrow.height = by + 25 - cy;
+    elements.push(arrow);
 
-    // Branch node
-    const node = createElement("rectangle", bx, by, color, "transparent", 2, 1, 1);
-    node.width = 100;
-    node.height = 40;
+    // Branch node — solid fill
+    const node = createElement("rectangle", bx, by, "#ffffff", fillColor, 2.5, 1, 1.2);
+    node.width = 120;
+    node.height = 50;
     elements.push(node);
 
-    const text = createElement("text", bx + 12, by + 12, color, "transparent", 1.2, 1, 0);
+    const text = createElement("text", bx, by, "#ffffff", "transparent", 1.8, 1, 0);
     text.text = label;
-    text.width = 80;
-    text.height = 20;
+    text.width = 120;
+    text.height = 50;
     elements.push(text);
   });
 
   return elements;
 }
 
-function generateGrid(prompt: string, color: string): DrawElement[] {
+function generateGrid(prompt: string, _color: string): DrawElement[] {
   const elements: DrawElement[] = [];
   const cols = 4;
   const rows = 3;
-  const cellW = 120;
-  const cellH = 60;
-  const startX = 150;
-  const startY = 100;
+  const cellW = 140;
+  const cellH = 65;
+  const startX = 100;
+  const startY = 80;
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      const isHeader = r === 0;
       const el = createElement(
         "rectangle",
         startX + c * cellW,
         startY + r * cellH,
-        r === 0 ? color : color + "60",
-        r === 0 ? color + "15" : "transparent",
-        r === 0 ? 2.5 : 1.5,
+        "#ffffff",
+        isHeader ? "#4285F4" : "transparent",
+        isHeader ? 2.5 : 1.5,
         1,
-        0.5
+        isHeader ? 1.2 : 0.8
       );
       el.width = cellW;
       el.height = cellH;
@@ -340,17 +342,17 @@ function generateGrid(prompt: string, color: string): DrawElement[] {
 
       const text = createElement(
         "text",
-        startX + c * cellW + 15,
-        startY + r * cellH + 20,
-        r === 0 ? color : "#888888",
+        startX + c * cellW + 18,
+        startY + r * cellH + 18,
+        isHeader ? "#ffffff" : "#cccccc",
         "transparent",
-        r === 0 ? 1.5 : 1,
+        isHeader ? 2 : 1.5,
         1,
         0
       );
-      text.text = r === 0 ? `Col ${c + 1}` : `R${r}C${c + 1}`;
+      text.text = isHeader ? `Column ${c + 1}` : `Row ${r}, Col ${c + 1}`;
       text.width = cellW;
-      text.height = 20;
+      text.height = 24;
       elements.push(text);
     }
   }
@@ -358,91 +360,112 @@ function generateGrid(prompt: string, color: string): DrawElement[] {
   return elements;
 }
 
-function generateTimeline(prompt: string, color: string): DrawElement[] {
+function generateTimeline(prompt: string, _color: string): DrawElement[] {
   const elements: DrawElement[] = [];
   const events = ["Phase 1", "Phase 2", "Phase 3", "Phase 4", "Phase 5"];
+  const phaseColors = ["#4285F4", "#34A853", "#F4B400", "#DB4437", "#9C27B0"];
   const startX = 80;
-  const y = 250;
-  const gap = 160;
+  const y = 280;
+  const gap = 170;
 
-  // Main line
-  const line = createElement("arrow", startX, y, color + "40", "transparent", 2, 1, 0.5);
-  line.width = (events.length - 1) * gap + 40;
+  // Main arrow line — thick white
+  const line = createElement("arrow", startX - 20, y, "#ffffff", "transparent", 2.5, 1, 1);
+  line.width = (events.length - 1) * gap + 80;
   line.height = 0;
   elements.push(line);
 
   events.forEach((label, i) => {
     const x = startX + i * gap;
+    const fillColor = phaseColors[i % phaseColors.length];
 
-    // Dot
-    const dot = createElement("ellipse", x - 8, y - 8, color, color, 2, 1, 0);
-    dot.width = 16;
-    dot.height = 16;
+    // Filled dot
+    const dot = createElement("ellipse", x - 12, y - 12, "#ffffff", fillColor, 2, 1, 0.3);
+    dot.width = 24;
+    dot.height = 24;
     elements.push(dot);
 
-    // Vertical line
-    const vline = createElement("line", x, y - 8, color + "40", "transparent", 1.5, 1, 0.5);
+    // Vertical connector line
+    const vline = createElement("line", x, y - 12, "#ffffff", "transparent", 2, 0.8, 1);
     vline.width = 0;
-    vline.height = -50;
+    vline.height = -60;
     elements.push(vline);
 
-    // Label box
-    const box = createElement("rectangle", x - 45, y - 100, color, color + "10", 1.5, 1, 1);
-    box.width = 90;
-    box.height = 40;
+    // Label box — solid fill
+    const box = createElement("rectangle", x - 55, y - 130, "#ffffff", fillColor, 2.5, 1, 1.2);
+    box.width = 110;
+    box.height = 50;
     elements.push(box);
 
-    const text = createElement("text", x - 32, y - 88, color, "transparent", 1.2, 1, 0);
+    const text = createElement("text", x - 55, y - 130, "#ffffff", "transparent", 2, 1, 0);
     text.text = label;
-    text.width = 80;
-    text.height = 20;
+    text.width = 110;
+    text.height = 50;
     elements.push(text);
   });
 
   return elements;
 }
 
-function generateArchitectureDiagram(prompt: string, color: string): DrawElement[] {
+function generateArchitectureDiagram(prompt: string, _color: string): DrawElement[] {
   const elements: DrawElement[] = [];
 
+  // Excalidraw-style: each layer gets its own distinct solid color
   const boxes = [
-    { x: 250, y: 60, w: 200, h: 60, label: "Frontend", fill: true },
-    { x: 100, y: 200, w: 160, h: 60, label: "API Gateway", fill: false },
-    { x: 420, y: 200, w: 160, h: 60, label: "Auth Service", fill: false },
-    { x: 60, y: 340, w: 140, h: 60, label: "Service A", fill: false },
-    { x: 260, y: 340, w: 140, h: 60, label: "Service B", fill: false },
-    { x: 460, y: 340, w: 140, h: 60, label: "Database", fill: true },
+    { x: 250, y: 50, w: 220, h: 70, label: "Frontend", stroke: "#ffffff", fill: "#4285F4", layer: "transport" },
+    { x: 80, y: 200, w: 200, h: 70, label: "API Gateway", stroke: "#ffffff", fill: "#34A853", layer: "operations" },
+    { x: 440, y: 200, w: 200, h: 70, label: "Auth Service", stroke: "#ffffff", fill: "#34A853", layer: "operations" },
+    { x: 40, y: 380, w: 180, h: 70, label: "Service A", stroke: "#ffffff", fill: "#F4B400", layer: "services" },
+    { x: 270, y: 380, w: 180, h: 70, label: "Service B", stroke: "#ffffff", fill: "#F4B400", layer: "services" },
+    { x: 500, y: 380, w: 180, h: 70, label: "Database", stroke: "#ffffff", fill: "#DB4437", layer: "state" },
   ];
 
-  const arrows = [
-    [0, 1], [0, 2], [1, 3], [1, 4], [3, 5], [4, 5],
+  // Layer labels on the left
+  const layerLabels = [
+    { x: -80, y: 70, label: "Transport" },
+    { x: -80, y: 220, label: "Operations" },
+    { x: -80, y: 400, label: "Services" },
   ];
 
-  boxes.forEach(({ x, y, w, h, label, fill }) => {
-    const el = createElement("rectangle", x, y, color, fill ? color + "15" : "transparent", 2, 1, 1);
+  layerLabels.forEach(({ x, y, label }) => {
+    const text = createElement("text", x, y, "#888888", "transparent", 2, 0.7, 0);
+    text.text = label;
+    text.width = 120;
+    text.height = 30;
+    elements.push(text);
+  });
+
+  boxes.forEach(({ x, y, w, h, label, stroke, fill }) => {
+    // Solid-fill rectangle with thick white stroke — like real Excalidraw
+    const el = createElement("rectangle", x, y, stroke, fill, 2.5, 1, 1.2);
     el.width = w;
     el.height = h;
     elements.push(el);
 
-    const text = createElement("text", x + 20, y + 20, color, "transparent", 1.5, 1, 0);
+    // White text centered inside box
+    const text = createElement("text", x, y, "#ffffff", "transparent", 2, 1, 0);
     text.text = label;
     text.width = w;
-    text.height = 20;
+    text.height = h;
     elements.push(text);
   });
 
-  arrows.forEach(([from, to]) => {
+  // Arrows — white, thick, connecting boxes
+  const arrowConnections = [
+    [0, 1], [0, 2], [1, 3], [1, 4], [3, 5], [4, 5],
+  ];
+
+  arrowConnections.forEach(([from, to]) => {
     const f = boxes[from];
     const t = boxes[to];
     const arrow = createElement(
       "arrow",
       f.x + f.w / 2,
       f.y + f.h,
-      color + "80",
+      "#ffffff",
       "transparent",
-      1.5,
-      0.8,
-      1
+      2,
+      0.9,
+      1.2
     );
     arrow.width = t.x + t.w / 2 - (f.x + f.w / 2);
     arrow.height = t.y - (f.y + f.h);
