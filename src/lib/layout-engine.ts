@@ -1,93 +1,102 @@
 /**
- * Layout engine: takes parsed Mermaid diagrams and produces
+ * Layout engine: takes Claude's JSON diagram output and produces
  * positioned DrawForce canvas elements using dagre for graph layout.
  */
 
 import dagre from "@dagrejs/dagre";
-import { ParsedDiagram, ParsedNode, ParsedEdge, ParsedSubgraph } from "./mermaid-parser";
 import { DrawElement } from "@/types";
 import { createElement } from "./canvas-engine";
 
-// Excalidraw-style color palette
-const PALETTE = {
-  blue: "#4285F4",
-  green: "#34A853",
-  yellow: "#F4B400",
-  red: "#DB4437",
-  purple: "#9C27B0",
-  cyan: "#00BCD4",
-  orange: "#FF9800",
-  pink: "#E91E63",
-  teal: "#009688",
-  indigo: "#3F51B5",
-};
+// ── Types from Claude's JSON output ─────────────────────────────────
 
-const COLOR_CYCLE = Object.values(PALETTE);
-
-function getColor(index: number): string {
-  return COLOR_CYCLE[index % COLOR_CYCLE.length];
+export interface DiagramNode {
+  id: string;
+  label: string;
+  shape: "rect" | "diamond" | "circle" | "rounded";
+  group?: string;
 }
 
-// Map subgraph → color for consistent coloring
-function getSubgraphColorMap(subgraphs: ParsedSubgraph[]): Map<string, string> {
-  const map = new Map<string, string>();
-  subgraphs.forEach((sg, i) => {
-    const color = getColor(i);
-    sg.nodeIds.forEach((nid) => map.set(nid, color));
-  });
-  return map;
+export interface DiagramEdge {
+  from: string;
+  to: string;
+  label?: string;
 }
 
-export function layoutDiagram(diagram: ParsedDiagram): DrawElement[] {
-  if (diagram.nodes.length === 0) return [];
-
-  switch (diagram.type) {
-    case "mindmap":
-      return layoutMindmap(diagram);
-    case "sequence":
-      return layoutSequence(diagram);
-    case "timeline":
-      return layoutTimeline(diagram);
-    default:
-      return layoutFlowchart(diagram);
-  }
+export interface DiagramGroup {
+  id: string;
+  label: string;
 }
 
-// ── Flowchart / Graph Layout (dagre) ────────────────────────────────
+export interface DiagramData {
+  title?: string;
+  direction?: "TD" | "LR";
+  nodes: DiagramNode[];
+  edges: DiagramEdge[];
+  groups?: DiagramGroup[];
+}
 
-function layoutFlowchart(diagram: ParsedDiagram): DrawElement[] {
+// ── Color palette ───────────────────────────────────────────────────
+
+const COLORS = [
+  "#4285F4", // blue
+  "#34A853", // green
+  "#F4B400", // yellow
+  "#DB4437", // red
+  "#9C27B0", // purple
+  "#00BCD4", // cyan
+  "#FF9800", // orange
+  "#E91E63", // pink
+  "#009688", // teal
+  "#3F51B5", // indigo
+];
+
+function getColor(i: number): string {
+  return COLORS[i % COLORS.length];
+}
+
+// ── Main layout function ────────────────────────────────────────────
+
+export function layoutDiagram(data: DiagramData): DrawElement[] {
+  if (!data.nodes || data.nodes.length === 0) return [];
+
   const elements: DrawElement[] = [];
 
   // Create dagre graph
   const g = new dagre.graphlib.Graph({ compound: true });
   g.setGraph({
-    rankdir: diagram.direction === "LR" ? "LR" : "TB",
-    nodesep: 60,
-    ranksep: 80,
-    edgesep: 30,
-    marginx: 40,
-    marginy: 40,
+    rankdir: data.direction === "LR" ? "LR" : "TB",
+    nodesep: 50,
+    ranksep: 70,
+    edgesep: 20,
+    marginx: 60,
+    marginy: 60,
   });
   g.setDefaultEdgeLabel(() => ({}));
 
-  // Node dimensions based on label length
-  const NODE_HEIGHT = 60;
-  const MIN_NODE_WIDTH = 120;
+  // Calculate node dimensions — use generous width for Caveat hand-drawn font
+  const NODE_H = 60;
+  const MIN_W = 160;
 
-  for (const node of diagram.nodes) {
-    const width = Math.max(MIN_NODE_WIDTH, node.label.length * 12 + 40);
-    g.setNode(node.id, { label: node.label, width, height: NODE_HEIGHT });
+  for (const node of data.nodes) {
+    const w = Math.max(MIN_W, node.label.length * 14 + 60);
+    const h = node.shape === "diamond" ? 80 : NODE_H;
+    g.setNode(node.id, { label: node.label, width: w, height: h });
   }
 
-  // Register subgraphs
-  for (const sg of diagram.subgraphs) {
-    g.setNode(sg.id, { label: sg.label, clusterLabelPos: "top" });
-    for (const nid of sg.nodeIds) {
-      g.setParent(nid, sg.id);
+  // Register groups as compound parents
+  if (data.groups && data.groups.length > 0) {
+    for (const group of data.groups) {
+      g.setNode(group.id, { label: group.label });
+    }
+    for (const node of data.nodes) {
+      if (node.group && g.hasNode(node.group)) {
+        g.setParent(node.id, node.group);
+      }
     }
   }
 
-  for (const edge of diagram.edges) {
+  // Add edges
+  for (const edge of data.edges) {
     if (g.hasNode(edge.from) && g.hasNode(edge.to)) {
       g.setEdge(edge.from, edge.to, { label: edge.label || "" });
     }
@@ -96,318 +105,167 @@ function layoutFlowchart(diagram: ParsedDiagram): DrawElement[] {
   // Run dagre layout
   dagre.layout(g);
 
-  // Build color map from subgraphs
-  const colorMap = getSubgraphColorMap(diagram.subgraphs);
-
-  // Auto-assign colors to nodes without a subgraph color
-  let colorIdx = diagram.subgraphs.length;
-  const nodeColorCache = new Map<string, string>();
-  for (const node of diagram.nodes) {
-    if (!colorMap.has(node.id)) {
-      nodeColorCache.set(node.id, getColor(colorIdx++));
+  // Assign colors — nodes in same group get same color
+  const groupColorMap = new Map<string, string>();
+  let groupColorIdx = 0;
+  if (data.groups) {
+    for (const group of data.groups) {
+      groupColorMap.set(group.id, getColor(groupColorIdx++));
     }
   }
 
-  // Render subgraph backgrounds
-  for (const sg of diagram.subgraphs) {
-    const sgNode = g.node(sg.id);
-    if (sgNode && sgNode.x !== undefined) {
-      const sgColor = getColor(diagram.subgraphs.indexOf(sg));
-      const bgEl = createElement(
-        "rectangle",
-        sgNode.x - (sgNode.width || 200) / 2,
-        sgNode.y - (sgNode.height || 150) / 2,
-        sgColor + "60",
-        sgColor + "10",
-        1,
-        0.4,
-        0.5
-      );
-      bgEl.width = sgNode.width || 200;
-      bgEl.height = sgNode.height || 150;
-      elements.push(bgEl);
-
-      // Subgraph label
-      const labelEl = createElement(
-        "text",
-        sgNode.x - (sgNode.width || 200) / 2,
-        sgNode.y - (sgNode.height || 150) / 2 - 5,
-        "#888888",
-        "transparent",
-        1.5,
-        0.7,
-        0
-      );
-      labelEl.text = sg.label;
-      labelEl.width = sgNode.width || 200;
-      labelEl.height = 25;
-      elements.push(labelEl);
+  // Nodes without groups get their own color based on index
+  const nodeColorMap = new Map<string, string>();
+  let soloColorIdx = data.groups?.length || 0;
+  for (const node of data.nodes) {
+    if (node.group && groupColorMap.has(node.group)) {
+      nodeColorMap.set(node.id, groupColorMap.get(node.group)!);
+    } else {
+      nodeColorMap.set(node.id, getColor(soloColorIdx++));
     }
   }
 
-  // Render nodes
-  for (const node of diagram.nodes) {
+  // ── Render group backgrounds ────────────────────────────────────
+
+  if (data.groups) {
+    for (const group of data.groups) {
+      const gNode = g.node(group.id);
+      if (!gNode || gNode.x === undefined) continue;
+
+      const gx = gNode.x - (gNode.width || 200) / 2 - 15;
+      const gy = gNode.y - (gNode.height || 200) / 2 - 30;
+      const gw = (gNode.width || 200) + 30;
+      const gh = (gNode.height || 200) + 45;
+      const color = groupColorMap.get(group.id) || "#666";
+
+      // Group background
+      const bg = createElement("rectangle", gx, gy, color + "50", color + "08", 1, 0.5, 0.4);
+      bg.width = gw;
+      bg.height = gh;
+      elements.push(bg);
+
+      // Group label
+      const label = createElement("text", gx + 10, gy + 5, color, "transparent", 1.5, 0.7, 0);
+      label.text = group.label;
+      label.width = gw - 20;
+      label.height = 22;
+      elements.push(label);
+    }
+  }
+
+  // ── Render nodes ────────────────────────────────────────────────
+
+  for (const node of data.nodes) {
     const layoutNode = g.node(node.id);
     if (!layoutNode || layoutNode.x === undefined) continue;
 
-    const x = layoutNode.x - layoutNode.width / 2;
-    const y = layoutNode.y - layoutNode.height / 2;
     const w = layoutNode.width;
     const h = layoutNode.height;
+    const x = layoutNode.x - w / 2;
+    const y = layoutNode.y - h / 2;
+    const color = nodeColorMap.get(node.id) || COLORS[0];
 
-    const fillColor = colorMap.get(node.id) || nodeColorCache.get(node.id) || getColor(0);
+    // Shape
+    const shapeType =
+      node.shape === "diamond" ? "diamond" :
+      node.shape === "circle" ? "ellipse" :
+      "rectangle";
 
-    const shapeType = node.shape === "diamond" ? "diamond"
-      : node.shape === "circle" ? "ellipse"
-      : "rectangle";
+    const shape = createElement(shapeType, x, y, "#ffffff", color, 2, 1, 1.2);
+    shape.width = w;
+    shape.height = h;
+    elements.push(shape);
 
-    // Shape element
-    const el = createElement(shapeType, x, y, "#ffffff", fillColor, 2.5, 1, 1.2);
-    el.width = w;
-    el.height = h;
-    elements.push(el);
-
-    // Text label centered inside
-    const textEl = createElement("text", x, y, "#ffffff", "transparent", 2, 1, 0);
-    textEl.text = node.label;
-    textEl.width = w;
-    textEl.height = h;
-    elements.push(textEl);
+    // Label text (centered inside shape)
+    const text = createElement("text", x, y, "#ffffff", "transparent", 1.8, 1, 0);
+    text.text = node.label;
+    text.width = w;
+    text.height = h;
+    elements.push(text);
   }
 
-  // Render edges
-  for (const edge of diagram.edges) {
+  // ── Render edges ────────────────────────────────────────────────
+
+  for (const edge of data.edges) {
     const fromNode = g.node(edge.from);
     const toNode = g.node(edge.to);
-    if (!fromNode || !toNode || fromNode.x === undefined || toNode.x === undefined) continue;
+    if (!fromNode || !toNode) continue;
+    if (fromNode.x === undefined || toNode.x === undefined) continue;
 
-    const arrowEl = createElement(
-      "arrow",
-      fromNode.x,
-      fromNode.y + fromNode.height / 2,
-      "#ffffff",
-      "transparent",
-      2,
-      0.9,
-      1.2
-    );
-    arrowEl.width = toNode.x - fromNode.x;
-    arrowEl.height = (toNode.y - toNode.height / 2) - (fromNode.y + fromNode.height / 2);
-    elements.push(arrowEl);
+    // Arrow from bottom-center of source to top-center of target
+    const isLR = data.direction === "LR";
+
+    let x1: number, y1: number, x2: number, y2: number;
+
+    if (isLR) {
+      // Left-to-right: exit from right edge, enter left edge
+      x1 = fromNode.x + fromNode.width / 2;
+      y1 = fromNode.y;
+      x2 = toNode.x - toNode.width / 2;
+      y2 = toNode.y;
+    } else {
+      // Top-down: exit from bottom, enter top
+      x1 = fromNode.x;
+      y1 = fromNode.y + fromNode.height / 2;
+      x2 = toNode.x;
+      y2 = toNode.y - toNode.height / 2;
+    }
+
+    const arrow = createElement("arrow", x1, y1, "#ffffff", "transparent", 2, 0.85, 1.2);
+    arrow.width = x2 - x1;
+    arrow.height = y2 - y1;
+    elements.push(arrow);
 
     // Edge label
     if (edge.label) {
-      const midX = (fromNode.x + toNode.x) / 2;
-      const midY = (fromNode.y + fromNode.height / 2 + toNode.y - toNode.height / 2) / 2;
-      const labelEl = createElement("text", midX - 40, midY - 12, "#aaaaaa", "transparent", 1.2, 0.8, 0);
+      const midX = (x1 + x2) / 2;
+      const midY = (y1 + y2) / 2;
+      const labelW = edge.label.length * 9 + 20;
+      const labelEl = createElement("text", midX - labelW / 2, midY - 14, "#aaaaaa", "transparent", 1.2, 0.8, 0);
       labelEl.text = edge.label;
-      labelEl.width = 80;
-      labelEl.height = 24;
+      labelEl.width = labelW;
+      labelEl.height = 22;
       elements.push(labelEl);
     }
   }
 
-  return elements;
-}
+  // ── Title ───────────────────────────────────────────────────────
 
-// ── Mindmap Layout (radial) ─────────────────────────────────────────
-
-function layoutMindmap(diagram: ParsedDiagram): DrawElement[] {
-  const elements: DrawElement[] = [];
-  if (diagram.nodes.length === 0) return elements;
-
-  const cx = 400;
-  const cy = 350;
-
-  // Find root (first node or one with no incoming edges)
-  const incomingSet = new Set(diagram.edges.map((e) => e.to));
-  const root = diagram.nodes.find((n) => !incomingSet.has(n.id)) || diagram.nodes[0];
-
-  // Build adjacency
-  const children = new Map<string, string[]>();
-  for (const edge of diagram.edges) {
-    if (!children.has(edge.from)) children.set(edge.from, []);
-    children.get(edge.from)!.push(edge.to);
-  }
-
-  // Position root
-  const rootEl = createElement("ellipse", cx - 80, cy - 40, "#ffffff", PALETTE.blue, 2.5, 1, 1.2);
-  rootEl.width = 160;
-  rootEl.height = 80;
-  elements.push(rootEl);
-
-  const rootText = createElement("text", cx - 80, cy - 40, "#ffffff", "transparent", 2.5, 1, 0);
-  rootText.text = root.label;
-  rootText.width = 160;
-  rootText.height = 80;
-  elements.push(rootText);
-
-  // Position children radially
-  const kids = children.get(root.id) || [];
-  const radius = 220;
-
-  kids.forEach((kidId, i) => {
-    const node = diagram.nodes.find((n) => n.id === kidId);
-    if (!node) return;
-
-    const angle = (i / kids.length) * Math.PI * 2 - Math.PI / 2;
-    const bx = cx + Math.cos(angle) * radius - 65;
-    const by = cy + Math.sin(angle) * radius - 28;
-    const color = getColor(i);
-
-    // Arrow from center
-    const arrow = createElement("arrow", cx, cy, "#ffffff", "transparent", 2, 0.6, 1.5);
-    arrow.width = bx + 65 - cx;
-    arrow.height = by + 28 - cy;
-    elements.push(arrow);
-
-    // Branch box
-    const boxEl = createElement("rectangle", bx, by, "#ffffff", color, 2.5, 1, 1.2);
-    boxEl.width = 130;
-    boxEl.height = 56;
-    elements.push(boxEl);
-
-    const textEl = createElement("text", bx, by, "#ffffff", "transparent", 1.8, 1, 0);
-    textEl.text = node.label;
-    textEl.width = 130;
-    textEl.height = 56;
-    elements.push(textEl);
-
-    // Sub-children
-    const grandkids = children.get(kidId) || [];
-    grandkids.forEach((gkId, j) => {
-      const gk = diagram.nodes.find((n) => n.id === gkId);
-      if (!gk) return;
-
-      const gAngle = angle + ((j - (grandkids.length - 1) / 2) * 0.4);
-      const gx = bx + 65 + Math.cos(gAngle) * 130 - 50;
-      const gy = by + 28 + Math.sin(gAngle) * 100 - 18;
-
-      const gArrow = createElement("arrow", bx + 65, by + 28, color, "transparent", 1.5, 0.5, 1.2);
-      gArrow.width = gx + 50 - (bx + 65);
-      gArrow.height = gy + 18 - (by + 28);
-      elements.push(gArrow);
-
-      const gBox = createElement("rectangle", gx, gy, "#ffffff", color + "80", 1.5, 1, 1);
-      gBox.width = 100;
-      gBox.height = 36;
-      elements.push(gBox);
-
-      const gText = createElement("text", gx, gy, "#ffffff", "transparent", 1.3, 1, 0);
-      gText.text = gk.label;
-      gText.width = 100;
-      gText.height = 36;
-      elements.push(gText);
-    });
-  });
-
-  return elements;
-}
-
-// ── Sequence Diagram Layout ─────────────────────────────────────────
-
-function layoutSequence(diagram: ParsedDiagram): DrawElement[] {
-  const elements: DrawElement[] = [];
-  const participants = diagram.nodes;
-  const gap = 200;
-  const startX = 80;
-  const startY = 60;
-
-  // Participant boxes across the top
-  participants.forEach((p, i) => {
-    const x = startX + i * gap;
-    const color = getColor(i);
-
-    const box = createElement("rectangle", x, startY, "#ffffff", color, 2.5, 1, 1);
-    box.width = 140;
-    box.height = 50;
-    elements.push(box);
-
-    const text = createElement("text", x, startY, "#ffffff", "transparent", 2, 1, 0);
-    text.text = p.label;
-    text.width = 140;
-    text.height = 50;
-    elements.push(text);
-
-    // Lifeline (vertical dashed line)
-    const lifeline = createElement("line", x + 70, startY + 50, "#ffffff40", "transparent", 1, 0.4, 0.3);
-    lifeline.width = 0;
-    lifeline.height = Math.max(300, diagram.edges.length * 50 + 100);
-    elements.push(lifeline);
-  });
-
-  // Message arrows
-  diagram.edges.forEach((edge, i) => {
-    const fromIdx = participants.findIndex((p) => p.id === edge.from);
-    const toIdx = participants.findIndex((p) => p.id === edge.to);
-    if (fromIdx === -1 || toIdx === -1) return;
-
-    const y = startY + 80 + i * 50;
-    const fromX = startX + fromIdx * gap + 70;
-    const toX = startX + toIdx * gap + 70;
-
-    const arrow = createElement("arrow", fromX, y, "#ffffff", "transparent", 2, 1, 1);
-    arrow.width = toX - fromX;
-    arrow.height = 0;
-    elements.push(arrow);
-
-    if (edge.label) {
-      const midX = Math.min(fromX, toX) + Math.abs(toX - fromX) / 2 - 50;
-      const text = createElement("text", midX, y - 22, "#cccccc", "transparent", 1.3, 0.9, 0);
-      text.text = edge.label;
-      text.width = 100;
-      text.height = 20;
-      elements.push(text);
+  if (data.title) {
+    // Find bounds to place title above
+    let minY = Infinity;
+    let minX = Infinity;
+    for (const node of data.nodes) {
+      const ln = g.node(node.id);
+      if (ln && ln.y !== undefined) {
+        minY = Math.min(minY, ln.y - ln.height / 2);
+        minX = Math.min(minX, ln.x - ln.width / 2);
+      }
     }
-  });
 
-  return elements;
-}
-
-// ── Timeline Layout ─────────────────────────────────────────────────
-
-function layoutTimeline(diagram: ParsedDiagram): DrawElement[] {
-  const elements: DrawElement[] = [];
-  const gap = 180;
-  const y = 280;
-  const startX = 80;
-
-  // Main arrow
-  if (diagram.nodes.length > 0) {
-    const mainArrow = createElement("arrow", startX - 20, y, "#ffffff", "transparent", 2.5, 1, 0.8);
-    mainArrow.width = (diagram.nodes.length - 1) * gap + 80;
-    mainArrow.height = 0;
-    elements.push(mainArrow);
+    const title = createElement("text", minX, minY - 50, "#ffffff", "transparent", 2.5, 1, 0);
+    title.text = data.title;
+    title.width = data.title.length * 14 + 40;
+    title.height = 40;
+    elements.push(title);
   }
 
-  diagram.nodes.forEach((node, i) => {
-    const x = startX + i * gap;
-    const color = getColor(i);
+  // ── Normalize position: offset so diagram starts at (50, 50) ──
 
-    // Dot on timeline
-    const dot = createElement("ellipse", x - 10, y - 10, "#ffffff", color, 2, 1, 0.3);
-    dot.width = 20;
-    dot.height = 20;
-    elements.push(dot);
-
-    // Vertical connector
-    const vline = createElement("line", x, y - 10, "#ffffff60", "transparent", 1.5, 0.7, 0.8);
-    vline.width = 0;
-    vline.height = -60;
-    elements.push(vline);
-
-    // Label box
-    const box = createElement("rectangle", x - 60, y - 130, "#ffffff", color, 2.5, 1, 1.2);
-    box.width = 120;
-    box.height = 55;
-    elements.push(box);
-
-    const text = createElement("text", x - 60, y - 130, "#ffffff", "transparent", 1.8, 1, 0);
-    text.text = node.label;
-    text.width = 120;
-    text.height = 55;
-    elements.push(text);
-  });
+  if (elements.length > 0) {
+    let globalMinX = Infinity;
+    let globalMinY = Infinity;
+    for (const el of elements) {
+      globalMinX = Math.min(globalMinX, el.x);
+      globalMinY = Math.min(globalMinY, el.y);
+    }
+    const offsetX = 50 - globalMinX;
+    const offsetY = 50 - globalMinY;
+    for (const el of elements) {
+      el.x += offsetX;
+      el.y += offsetY;
+    }
+  }
 
   return elements;
 }
