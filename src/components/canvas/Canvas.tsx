@@ -431,10 +431,11 @@ export function Canvas({ elements, onElementsChange }: CanvasProps) {
       {/* AI Chat Box */}
       <AIChatBox
         existingElements={elements}
-        onGenerateElements={(newEls) => {
-          const merged = [...elements, ...newEls];
-          onElementsChange(merged);
-          pushHistory(merged);
+        onGenerateElements={(newEls, clearExisting) => {
+          const result = clearExisting ? newEls : [...elements, ...newEls];
+          onElementsChange(result);
+          pushHistory(result);
+          setSelectedIds(new Set());
         }}
       />
 
